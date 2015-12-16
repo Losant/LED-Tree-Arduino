@@ -5,8 +5,25 @@
 
 #include <math.h>
 
+#include <WiFi101.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+
 #define CENTER_PIN 8
 #define OUTER_PIN 9
+
+#define DEVICE_ID "DEVICE_ID"
+#define ACCESS_KEY "ACCESS_KEY"
+#define ACCESS_SECRET "ACCESS_SECRET"
+#define BROKER "broker.getstructure.io"
+#define TOPIC "structure/DEVICE_ID/message"
+
+char ssid[] = "WIFI_SSID";
+char pass[] = "WIFI_PASS";
+int status = WL_IDLE_STATUS;
+WiFiClient wifiClient;
+PubSubClient client(BROKER, 1883, wifiClient);
+StaticJsonBuffer<500> jsonBuffer;
 
 // Parameter 1 = number of pixels in strip
 // Parameter 2 = Arduino pin number (most are valid)
@@ -107,8 +124,20 @@ FadeAnimation fadeAnimation {
 
 void setup() {
 
-  //Serial.begin(115200);
-  //Serial.println("--- Started Tree ---");
+  Serial.begin(115200);
+  Serial.println("LED Tree Application Started");
+
+  while(status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(ssid);
+    status = WiFi.begin(ssid, pass);
+
+    delay(5000);
+  }
+
+  Serial.println("Connected to network!");
+
+  client.setCallback(callback);
 
   centerStrip.begin();
   outerStrip.begin();
@@ -120,9 +149,53 @@ void setup() {
   //startFireworks(&fireworkAnimation);
 }
 
+void callback(char *topic, byte *payload, unsigned int length) {
+
+  Serial.println("Message Received");
+  Serial.println((char *)payload);
+  
+  JsonObject &root = jsonBuffer.parseObject((char *)payload);
+
+  if(root.success()) {
+    if(String(root["type"].asString()).equals(String("msg"))) {
+      Serial.println("Payload: ");
+      Serial.println(root["payload"].asString());
+    }
+    else {
+      Serial.print("Unknown message type: ");
+      Serial.println(root["type"].asString());
+    }
+  }
+  else {
+    Serial.println("Failed to parse JSON body.");
+  }
+}
+
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print(millis());
+    Serial.print(": ");
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect(DEVICE_ID, ACCESS_KEY, ACCESS_SECRET)) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      // ... and resubscribe
+      client.subscribe(TOPIC);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
 
 unsigned long previousMillis = 0;
-const long interval = 20;
+const long interval = 33;
 
 bool runningWarpCore = true;
 bool runningFadeBlue = false;
@@ -131,6 +204,14 @@ bool runningFadeRed = false;
 bool runningFadeDarkBlue = false;
 
 void loop() {
+
+  if(!client.connected()) {
+    Serial.println(client.state());
+    Serial.println("MQTT not connected.");
+    reconnect();
+  }
+
+  client.loop();
 
   if(!runningWarpCore && !runningFadeBlue && !runningFadeGreen && !runningFadeRed && !runningFadeDarkBlue) {
     runningWarpCore = true;
@@ -441,3 +522,50 @@ uint32_t Wheel(byte WheelPos) {
   return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
 }
 */
+
+void listNetworks() {
+  // scan for nearby networks:
+  Serial.println("** Scan Networks **");
+  int numSsid = WiFi.scanNetworks();
+  if (numSsid == -1) {
+    Serial.println("Couldn't get a wifi connection");
+    while (true);
+  }
+
+  // print the list of networks seen:
+  Serial.print("number of available networks:");
+  Serial.println(numSsid);
+
+  // print the network number and name for each network found:
+  for (int thisNet = 0; thisNet < numSsid; thisNet++) {
+    Serial.print(thisNet);
+    Serial.print(") ");
+    Serial.print(WiFi.SSID(thisNet));
+    Serial.print("\tSignal: ");
+    Serial.print(WiFi.RSSI(thisNet));
+    Serial.print(" dBm");
+    Serial.print("\tEncryption: ");
+    printEncryptionType(WiFi.encryptionType(thisNet));
+  }
+}
+
+void printEncryptionType(int thisType) {
+  // read the encryption type and print out the name:
+  switch (thisType) {
+    case ENC_TYPE_WEP:
+      Serial.println("WEP");
+      break;
+    case ENC_TYPE_TKIP:
+      Serial.println("WPA");
+      break;
+    case ENC_TYPE_CCMP:
+      Serial.println("WPA2");
+      break;
+    case ENC_TYPE_NONE:
+      Serial.println("None");
+      break;
+    case ENC_TYPE_AUTO:
+      Serial.println("Auto");
+      break;
+  }
+}
