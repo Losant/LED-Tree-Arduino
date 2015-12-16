@@ -19,3 +19,17 @@ Causes the tree to fade from a color to another color over a specified duration.
 ```
 
 The above example animations the tree from solid blue to solid red over 5 seconds.
+
+### Warp Core Animation
+Runs an animation that kind of looks like the warp core from Star Trek, the Next Generation.
+
+```json
+{
+  "animation" : "warpcore",
+  "options" : {
+    "duration" : 15000
+  }
+}
+```
+
+The above example will run the warp core animation for 15 seconds.
