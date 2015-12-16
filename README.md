@@ -1,5 +1,5 @@
 # LED-Tree-Arduino
-This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme.
+This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme. The Arduino connects to the [Structure IoT platform](http://getstructure.io) in order to receive commands.
 
 ## Controlling the Tree
 The Arduino subscribes to Structure devices messages to control what animation to run and the animation options. The messages should be JSON strings and the various commands are defined below.
