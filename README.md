@@ -33,3 +33,17 @@ Runs an animation that kind of looks like the warp core from Star Trek, the Next
 ```
 
 The above example will run the warp core animation for 15 seconds.
+
+### Firework Animations
+Runs an animation that looks like a firework.
+
+```json
+{
+  "animation" : "firework",
+  "options" : {
+    "duration" : 15000
+  }
+}
+```
+
+The above example will run the firework animation for 15 seconds.
