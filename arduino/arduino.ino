@@ -9,21 +9,29 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
+// TODO: revert to background animations.
+
+// Which pin the center light strip is connected to.
 #define CENTER_PIN 8
+
+// Which pin the outer light strip is connected to.
 #define OUTER_PIN 9
 
+// Structure setup.
 #define DEVICE_ID "DEVICE_ID"
 #define ACCESS_KEY "ACCESS_KEY"
 #define ACCESS_SECRET "ACCESS_SECRET"
 #define BROKER "broker.getstructure.io"
 #define TOPIC "structure/DEVICE_ID/message"
 
-char ssid[] = "WIFI_SSID";
-char pass[] = "WIFI_PASS";
+// WiFi setup.
+char ssid[] = "MORTAR";
+char pass[] = "BrickOTR";
 int status = WL_IDLE_STATUS;
 WiFiClient wifiClient;
+
+// The MQTT client.
 PubSubClient client(BROKER, 1883, wifiClient);
-StaticJsonBuffer<500> jsonBuffer;
 
 // Parameter 1 = number of pixels in strip
 // Parameter 2 = Arduino pin number (most are valid)
@@ -35,6 +43,9 @@ StaticJsonBuffer<500> jsonBuffer;
 Adafruit_NeoPixel centerStrip = Adafruit_NeoPixel(240, CENTER_PIN, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel outerStrip = Adafruit_NeoPixel(960, OUTER_PIN, NEO_GRB + NEO_KHZ800);
 
+unsigned long lastAnimationRunTime = 0;
+uint32_t lastAmbientColor = 0;
+
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
 // and minimize distance between Arduino and first pixel.  Avoid connecting
@@ -43,7 +54,7 @@ Adafruit_NeoPixel outerStrip = Adafruit_NeoPixel(960, OUTER_PIN, NEO_GRB + NEO_K
 struct WarpCoreAnimation {
   unsigned long startTime;
   unsigned long currentTime;
-  unsigned long length;       // animation length
+  unsigned long duration;     // animation length
   int centerLights;           // center lights to light up
   int outerLights;            // outer lights to light up
   uint32_t offStartColor;     // off color at the start of the animation
@@ -63,8 +74,13 @@ struct WarpCoreAnimation {
 struct FireworkAnimation {
   unsigned long startTime;
   unsigned long currentTime;
-  unsigned long length;
-  unsigned long shotDuration;
+  unsigned long duration;
+  float shotDuration;
+  float burstDuration;
+  float fadeDuration;
+  unsigned long burstStartTime;
+  unsigned long fadeStartTime;
+  unsigned long lastFadeUpdate;
   bool done;
   Adafruit_NeoPixel *centerStrip;
   Adafruit_NeoPixel *outerStrip;
@@ -81,17 +97,37 @@ struct FadeAnimation {
   Adafruit_NeoPixel *outerStrip;
 };
 
+struct BackgroundAnimation {
+  bool done;
+  bool runningWarpCore;
+  bool runningFadeRed;
+  bool runningFadeGreen;
+  bool runningFadeBlue;
+  bool runningFadeBlack;
+  bool runningFirework;
+};
+
+BackgroundAnimation backgroundAnimation {
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false
+};
+
 WarpCoreAnimation warpCoreAnimation { 
   0,
   0,
   10000,
   8,
   80,
-  centerStrip.Color(0, 0, 40),
-  centerStrip.Color(40, 0, 0),
+  centerStrip.Color(0, 0, 255),
+  centerStrip.Color(255, 0, 0),
   centerStrip.Color(0, 255, 255),
-  4000,
-  4000,
+  2000,
+  500,
   0,
   0,
   0,
@@ -105,7 +141,12 @@ FireworkAnimation fireworkAnimation {
   0,
   0,
   10000,
-  3000,
+  0.1,
+  0.05,
+  0.85,
+  0,
+  0,
+  0,
   true,
   &centerStrip,
   &outerStrip
@@ -132,46 +173,128 @@ void setup() {
     Serial.println(ssid);
     status = WiFi.begin(ssid, pass);
 
-    delay(5000);
+    delay(3000);
   }
 
   Serial.println("Connected to network!");
 
-  client.setCallback(callback);
+  client.setCallback(mqttMessageReceived);
 
   centerStrip.begin();
   outerStrip.begin();
   centerStrip.show(); // Initialize all pixels to 'off'
   outerStrip.show();
-
-  //startFade(&fadeAnimation, outerStrip.Color(0, 40, 0));
-  startWarpCore(&warpCoreAnimation);
-  //startFireworks(&fireworkAnimation);
 }
 
-void callback(char *topic, byte *payload, unsigned int length) {
+/**
+ * Called whenever an mqtt message is published on a subscribed topic.
+ * topic - the topic that was published to.
+ * payload - the contents of the message.
+ * length - the length of the payload.
+ */
+void mqttMessageReceived(char *topic, byte *payload, unsigned int length) {
+
+  StaticJsonBuffer<1024> msgBuffer;
+  StaticJsonBuffer<1024> payloadBuffer;
 
   Serial.println("Message Received");
   Serial.println((char *)payload);
   
-  JsonObject &root = jsonBuffer.parseObject((char *)payload);
+  JsonObject &root = msgBuffer.parseObject((char *)payload);
 
-  if(root.success()) {
-    if(String(root["type"].asString()).equals(String("msg"))) {
-      Serial.println("Payload: ");
-      Serial.println(root["payload"].asString());
+  if(!root.success()) {
+    Serial.println("ERROR: Failed to parse JSON body.");
+    return;
+  }
+  
+  JsonObject &payloadRoot = payloadBuffer.parseObject(root["payload"].asString());
+
+  if(!payloadRoot.success()) {
+    Serial.println("ERROR: Failed to parse payload JSON body.");
+    return;
+  }
+
+  if(!payloadRoot.containsKey("animation")) {
+    Serial.println("ERROR: No animation defined on payload.");
+    return;
+  }
+
+  stopAllAnimations();
+
+  // Fade.
+  if(strcmp(payloadRoot["animation"], "fade") == 0) {
+
+    uint32_t fromColor = centerStrip.Color(
+        payloadRoot["options"]["from"]["r"],
+        payloadRoot["options"]["from"]["g"],
+        payloadRoot["options"]["from"]["b"]);
+
+    if(!fromColor) {
+      fromColor = lastAmbientColor;
     }
-    else {
-      Serial.print("Unknown message type: ");
-      Serial.println(root["type"].asString());
+
+    uint32_t toColor = centerStrip.Color(
+      payloadRoot["options"]["to"]["r"],
+      payloadRoot["options"]["to"]["g"],
+      payloadRoot["options"]["to"]["b"]);
+
+    unsigned long duration = payloadRoot["options"]["duration"];
+
+    if(!duration) {
+      duration = 1000;
     }
+
+    fadeAnimation.duration = duration;
+    fadeAnimation.fromColor = fromColor;
+    fadeAnimation.toColor = toColor;
+    startFade();
+  }
+  // Warp Core.
+  else if(strcmp(payloadRoot["animation"], "warpcore") == 0) {
+    unsigned long duration = payloadRoot["options"]["duration"];
+    if(!duration) {
+      duration = 10000;
+    }
+    warpCoreAnimation.duration = duration;
+    startWarpCore();
+  }
+  // Fireworks.
+  else if(strcmp(payloadRoot["animation"], "firework") == 0) {
+    unsigned long duration = payloadRoot["options"]["duration"];
+    if(!duration) {
+      duration = 6000;
+    }
+    fireworkAnimation.duration = duration;
+    startFireworks();
   }
   else {
-    Serial.println("Failed to parse JSON body.");
+    Serial.println("Unknown animation.");
   }
 }
 
+/**
+ * Stops all animations. Typically called when a new animation request is received.
+ */
+void stopAllAnimations() {
+  Serial.println("Stopping all animations.");
+  warpCoreAnimation.done = true;
+  fireworkAnimation.done = true;
+  fadeAnimation.done = true;
+  backgroundAnimation.done = true;
+}
 
+/**
+ * Whether or not any animation is running.
+ */
+bool runningAnything() {
+  return !fadeAnimation.done ||
+    !fireworkAnimation.done ||
+    !warpCoreAnimation.done;
+}
+
+/**
+ * Reconnects to MQTT broker.
+ */
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
@@ -197,12 +320,6 @@ void reconnect() {
 unsigned long previousMillis = 0;
 const long interval = 33;
 
-bool runningWarpCore = true;
-bool runningFadeBlue = false;
-bool runningFadeGreen = false;
-bool runningFadeRed = false;
-bool runningFadeDarkBlue = false;
-
 void loop() {
 
   if(!client.connected()) {
@@ -213,42 +330,20 @@ void loop() {
 
   client.loop();
 
-  if(!runningWarpCore && !runningFadeBlue && !runningFadeGreen && !runningFadeRed && !runningFadeDarkBlue) {
-    runningWarpCore = true;
-    startWarpCore(&warpCoreAnimation);
+  // If the tree has been idle for a few seconds, run the background animation.
+  if(runningAnything()) {
+    lastAnimationRunTime = millis();
   }
 
-  if(runningWarpCore && warpCoreAnimation.done) {
-    runningWarpCore = false;
-    runningFadeBlue = true;
-    startFade(&fadeAnimation, centerStrip.Color(0, 0, 255), centerStrip.Color(40, 0, 0));
+  if(millis() - lastAnimationRunTime > 5000) {
+    startBackground();
   }
 
-  if(runningFadeBlue && fadeAnimation.done) {
-    runningFadeBlue = false;
-    runningFadeGreen = true;
-    startFade(&fadeAnimation, centerStrip.Color(0, 255, 0), centerStrip.Color(0, 0, 255));
-  }
-
-  if(runningFadeGreen && fadeAnimation.done) {
-    runningFadeGreen = false;
-    runningFadeRed = true;
-    startFade(&fadeAnimation, centerStrip.Color(255, 0, 0), centerStrip.Color(0, 255, 0));
-  }
-
-  if(runningFadeRed && fadeAnimation.done) {
-    runningFadeRed = false;
-    runningFadeDarkBlue = true;
-    startFade(&fadeAnimation, centerStrip.Color(0, 0, 40), centerStrip.Color(255, 0, 0));
-  }
-
-  if(runningFadeDarkBlue && fadeAnimation.done) {
-    runningFadeDarkBlue = false;
-  }
-
-  warpCore(&warpCoreAnimation);
-  fireworks(&fireworkAnimation);
-  fade(&fadeAnimation);
+  // Loop the animations.
+  warpCore();
+  fireworks();
+  fade();
+  background();
 
   // Only render the lights if enough time has passed.
   unsigned long currentMillis = millis();
@@ -260,41 +355,145 @@ void loop() {
 }
 
 /**
- * 
- * 
+ * Starts the warp core animation.
  */
-void startWarpCore(struct WarpCoreAnimation *ani) {
-  ani->done = false;
-  ani->startTime = millis();
-  ani->pulsing = false;
-  ani->currentPulseSpeed = 0;
+void startWarpCore() {
+  warpCoreAnimation.done = false;
+  warpCoreAnimation.startTime = millis();
+  warpCoreAnimation.pulsing = false;
+  warpCoreAnimation.currentPulseSpeed = 0;
+
+  Serial.println();
+  Serial.println("Starting Animation: Warp Core");
+  Serial.print("Duration: ");
+  Serial.println(warpCoreAnimation.duration);
+  Serial.println();
+
+  lastAmbientColor = centerStrip.Color(255, 0, 0);
+}
+
+void startBackground() {
+  backgroundAnimation.done = false;
+  backgroundAnimation.runningWarpCore = false;
+  backgroundAnimation.runningFadeBlue = false;
+  backgroundAnimation.runningFadeGreen = false;
+  backgroundAnimation.runningFadeRed = false;
+  backgroundAnimation.runningFadeBlack = false;
+  backgroundAnimation.runningFirework = false;
+};
+
+/**
+ * Starts the fireworks animation.
+ */
+void startFireworks() {
+  fireworkAnimation.done = false;
+  fireworkAnimation.startTime = millis();
+  fireworkAnimation.burstStartTime = 0;
+  fireworkAnimation.fadeStartTime = 0;
+  fireworkAnimation.lastFadeUpdate = 0;
+
+  Serial.println();
+  Serial.println("Starting Animation: Firework");
+  Serial.print("Duration: ");
+  Serial.println(fireworkAnimation.duration);
+  Serial.println();
+
+  lastAmbientColor = centerStrip.Color(0, 0, 0);
 }
 
 /**
- * 
- * 
+ * Starts the fade animation.
  */
-void startFireworks(struct FireworkAnimation *ani) {
-  ani->done = false;
-  ani->startTime = millis();
+void startFade() {
+  fadeAnimation.done = false;
+  fadeAnimation.startTime = millis();
+
+  Serial.println();
+  Serial.println("Starting Animation: Fade");
+  Serial.print("From: ");
+  Serial.println(fadeAnimation.fromColor);
+  Serial.print("To: ");
+  Serial.println(fadeAnimation.toColor);
+  Serial.print("Duration: ");
+  Serial.println(fadeAnimation.duration);
+  Serial.println();
+
+  lastAmbientColor = fadeAnimation.toColor;
 }
 
-/**
- * 
- * 
- */
-void startFade(struct FadeAnimation *ani, uint32_t toColor, uint32_t fromColor) {
-  ani->toColor = toColor;
-  ani->fromColor = fromColor;
-  ani->done = false;
-  ani->startTime = millis();
-}
+void background() {
+
+  struct BackgroundAnimation *ani = &backgroundAnimation;
+
+  if(ani->done) {
+    return;
+  }
+
+  if(!ani->runningWarpCore &&
+      !ani->runningFadeBlue &&
+      !ani->runningFadeGreen &&
+      !ani->runningFadeRed &&
+      !ani->runningFadeBlack &&
+      !ani->runningFirework) {
+    ani->runningFadeBlue = true;
+    fadeAnimation.fromColor = centerStrip.Color(0,0,0);
+    fadeAnimation.toColor = centerStrip.Color(0,0,255);
+    fadeAnimation.duration = 3000;
+    startFade();
+  }
+
+  if(ani->runningFadeBlue && fadeAnimation.done) {
+    ani->runningFadeBlue = false;
+    ani->runningWarpCore = true;
+    startWarpCore();
+  }
+
+  if(ani->runningWarpCore && warpCoreAnimation.done) {
+    ani->runningWarpCore = false;
+    ani->runningFadeGreen = true;
+    fadeAnimation.fromColor = centerStrip.Color(255,0,0);
+    fadeAnimation.toColor = centerStrip.Color(0,255,0);
+    fadeAnimation.duration = 3000;
+    startFade();
+  }
+
+  if(ani->runningFadeGreen && fadeAnimation.done) {
+    ani->runningFadeGreen = false;
+    ani->runningFadeRed = true;
+    fadeAnimation.fromColor = centerStrip.Color(0,255,0);
+    fadeAnimation.toColor = centerStrip.Color(255,0,0);
+    fadeAnimation.duration = 3000;
+    startFade();
+  }
+
+  if(ani->runningFadeRed && fadeAnimation.done) {
+    ani->runningFadeRed = false;
+    ani->runningFadeBlack = true;
+    fadeAnimation.fromColor = centerStrip.Color(255,0,0);
+    fadeAnimation.toColor = centerStrip.Color(0,0,0);
+    fadeAnimation.duration = 3000;
+    startFade();
+  }
+
+  if(ani->runningFadeBlack && fadeAnimation.done) {
+    ani->runningFadeBlack = false;
+    ani->runningFirework = true;
+    startFireworks();
+  }
+
+  if(ani->runningFirework && fireworkAnimation.done) {
+    ani->runningFirework = false;
+  }
+  
+};
 
 /**
- * 
- * 
+ * Runs the fade animation.
  */
-void fade(struct FadeAnimation *ani) {
+void fade() {
+
+  struct FadeAnimation *ani = &fadeAnimation;
+  
   if(ani->done) {
     return;
   }
@@ -330,44 +529,139 @@ void fade(struct FadeAnimation *ani) {
 }
 
 /**
- * 
- * 
- * 
+ * Runs the fireworks animation.
  */
-void fireworks(struct FireworkAnimation *ani) {
+void fireworks() {
+
+  struct FireworkAnimation *ani = &fireworkAnimation;
 
   if(ani->done) {
     return;
   }
+
+  unsigned long shotDuration = floor((float)ani->duration * (float)ani->shotDuration);
+  unsigned long burstDuration = floor((float)ani->duration * (float)ani->burstDuration);
+  unsigned long fadeDuration = floor((float)ani->duration * (float)ani->fadeDuration);
   
   ani->currentTime = millis();
   unsigned long duration = ani->currentTime - ani->startTime;
-  if(duration >= ani->length) {
+  if(duration >= ani->duration) {
+
+    for(uint16_t i = 0; i< ani->centerStrip->numPixels(); i++) {
+      ani->centerStrip->setPixelColor(i, ani->centerStrip->Color(0, 0, 0));
+    }
+
+    for(uint16_t i = 0; i< ani->outerStrip->numPixels(); i++) {
+      ani->outerStrip->setPixelColor(i, ani->centerStrip->Color(0, 0, 0));
+    }
+        
+    Serial.println("Done with firework animation.");
     ani->done = true;
     return;
   }
 
-  float shotPercentDone = (float)duration / (float)ani->shotDuration;
+  float shotPercentDone = (float)duration / (float)shotDuration;
 
-  int shotPos = floor((float)ani->centerStrip->numPixels() * shotPercentDone);
+  int shotLights = 30;
 
-  for(uint16_t i=0; i< ani->centerStrip->numPixels(); i++) {
-    if(i > shotPos) {
-      ani->centerStrip->setPixelColor(i, ani->centerStrip->Color(0, 0, 0));
+  // Running the shot.
+  if(shotPercentDone < 1) {
+    int shotPos = floor((float)ani->centerStrip->numPixels() * shotPercentDone);
+
+    // Clear the outer strip.
+    for(uint16_t i = 0; i < ani->outerStrip->numPixels(); i++) {
+      ani->outerStrip->setPixelColor(i, ani->outerStrip->Color(0, 0, 0));
     }
-    else {
-      ani->centerStrip->setPixelColor(i, ani->centerStrip->Color(255, 255, 255));
+
+    for(uint16_t i = 0; i< ani->centerStrip->numPixels(); i++) {
+      if(i > shotPos || i < shotPos - shotLights) {
+        ani->centerStrip->setPixelColor(i, ani->centerStrip->Color(0, 0, 0));
+      }
+      else {
+        ani->centerStrip->setPixelColor(i, ani->centerStrip->Color(255, 255, 255));
+      }
     }
   }
-  
+  else {
+    // Shot is done, start the burst.
+    if(!ani->burstStartTime) {
+      Serial.println("Starting firework burst section.");
+      ani->burstStartTime = ani->currentTime;
+    }
+  }
+
+  // Running the burst.
+  if(ani->burstStartTime) {
+
+    unsigned long duration = ani->currentTime - ani->burstStartTime;
+
+    float burstPercentDone = (float)duration / (float)burstDuration;
+
+    if(burstPercentDone < 0.5) {
+      for(uint16_t i = ani->outerStrip->numPixels() - 180; i < ani->outerStrip->numPixels(); i++) {
+        int color = floor((float)255 * burstPercentDone * 2);
+        ani->outerStrip->setPixelColor(i, ani->outerStrip->Color(color, color, color));
+      }
+    }
+    else if(burstPercentDone < 1) {
+      for(uint16_t i = ani->outerStrip->numPixels() - 180; i < ani->outerStrip->numPixels(); i++) {
+        int color = 255 - floor((float)255 * ((burstPercentDone * 2.0) - 1.0));
+        ani->outerStrip->setPixelColor(i, ani->outerStrip->Color(color, color, color));
+      }
+    }
+    else {
+      if(!ani->fadeStartTime) {
+        for(uint16_t i = 0; i< ani->centerStrip->numPixels(); i++) {
+          ani->centerStrip->setPixelColor(i, ani->centerStrip->Color(0, 0, 0));
+        }
+        Serial.println("Starting firework fade section.");
+        ani->fadeStartTime = ani->currentTime;
+      }
+    }
+  }
+
+  // Running the fade.
+  if(ani->fadeStartTime) {
+
+    unsigned long duration = ani->currentTime - ani->fadeStartTime;
+
+    float fadePercentDone = (float)duration / (float)fadeDuration;
+
+    if(fadePercentDone < 1) {
+
+      int intensitySubtract = floor(255.0 * fadePercentDone);
+
+      // Lights have been lit for enough time, pick new random set.
+      if(ani->currentTime - ani->lastFadeUpdate > 75) {
+        ani->lastFadeUpdate = ani->currentTime;;
+        int endLight = (floor)(ani->outerStrip->numPixels() - ((float)ani->outerStrip->numPixels() * fadePercentDone));
+
+        for(uint16_t i = endLight; i < ani->outerStrip->numPixels(); i++) {
+
+          float percentDown = (float)i / (float)ani->outerStrip->numPixels();
+
+          int c = 255.0 - intensitySubtract;
+
+          long randomNum = random(0, 5);
+          if(randomNum == 2) {
+            ani->outerStrip->setPixelColor(i, ani->outerStrip->Color(c, c, c));
+          }
+          else {
+            ani->outerStrip->setPixelColor(i, ani->outerStrip->Color(0, 0, 0));
+          }
+        }
+        
+      }
+    }
+  }
 }
 
 /**
- * 
- * 
- * 
+ * Runs the warp core animation.
  */
-void warpCore(struct WarpCoreAnimation *ani) {
+void warpCore() {
+
+  struct WarpCoreAnimation *ani = &warpCoreAnimation;
 
   if(ani->done) {
     return;
@@ -376,12 +670,12 @@ void warpCore(struct WarpCoreAnimation *ani) {
   ani->currentTime = millis();
 
   unsigned long duration = ani->currentTime - ani->startTime;
-  if(duration >= ani->length) {
+  if(duration >= ani->duration) {
     ani->done = true;
     return;
   }
 
-  float percentDone = (float)duration / (float)ani->length;
+  float percentDone = (float)duration / (float)ani->duration;
 
   // Fade the off color.
   uint8_t rStart = ani->offStartColor >> 16;
@@ -433,139 +727,5 @@ void warpCore(struct WarpCoreAnimation *ani) {
     else {
       ani->outerStrip->setPixelColor(i, ani->outerStrip->Color(rNow, gNow, bNow));
     }
-  }
-}
-
-/*
-// Fill the dots one after the other with a color
-void colorWipe(uint32_t c, uint8_t wait) {
-  for(uint16_t i=0; i<strip.numPixels(); i++) {
-    strip.setPixelColor(i, c);
-    strip.show();
-    delay(wait);
-  }
-}
-
-void rainbow(uint8_t wait) {
-  uint16_t i, j;
-
-  for(j=0; j<256; j++) {
-    for(i=0; i<strip.numPixels(); i++) {
-      strip.setPixelColor(i, Wheel((i+j) & 255));
-    }
-    strip.show();
-    delay(wait);
-  }
-}
-
-// Slightly different, this makes the rainbow equally distributed throughout
-void rainbowCycle(uint8_t wait) {
-  uint16_t i, j;
-
-  for(j=0; j<256*5; j++) { // 5 cycles of all colors on wheel
-    for(i=0; i< strip.numPixels(); i++) {
-      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
-    }
-    strip.show();
-    delay(wait);
-  }
-}
-
-//Theatre-style crawling lights.
-void theaterChase(uint32_t c, uint8_t wait) {
-  for (int j=0; j<10; j++) {  //do 10 cycles of chasing
-    for (int q=0; q < 3; q++) {
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, c);    //turn every third pixel on
-      }
-      strip.show();
-
-      delay(wait);
-
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, 0);        //turn every third pixel off
-      }
-    }
-  }
-}
-
-//Theatre-style crawling lights with rainbow effect
-void theaterChaseRainbow(uint8_t wait) {
-  for (int j=0; j < 256; j++) {     // cycle all 256 colors in the wheel
-    for (int q=0; q < 3; q++) {
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, Wheel( (i+j) % 255));    //turn every third pixel on
-      }
-      strip.show();
-
-      delay(wait);
-
-      for (int i=0; i < strip.numPixels(); i=i+3) {
-        strip.setPixelColor(i+q, 0);        //turn every third pixel off
-      }
-    }
-  }
-}
-
-// Input a value 0 to 255 to get a color value.
-// The colours are a transition r - g - b - back to r.
-uint32_t Wheel(byte WheelPos) {
-  WheelPos = 255 - WheelPos;
-  if(WheelPos < 85) {
-    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
-  }
-  if(WheelPos < 170) {
-    WheelPos -= 85;
-    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
-  }
-  WheelPos -= 170;
-  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
-}
-*/
-
-void listNetworks() {
-  // scan for nearby networks:
-  Serial.println("** Scan Networks **");
-  int numSsid = WiFi.scanNetworks();
-  if (numSsid == -1) {
-    Serial.println("Couldn't get a wifi connection");
-    while (true);
-  }
-
-  // print the list of networks seen:
-  Serial.print("number of available networks:");
-  Serial.println(numSsid);
-
-  // print the network number and name for each network found:
-  for (int thisNet = 0; thisNet < numSsid; thisNet++) {
-    Serial.print(thisNet);
-    Serial.print(") ");
-    Serial.print(WiFi.SSID(thisNet));
-    Serial.print("\tSignal: ");
-    Serial.print(WiFi.RSSI(thisNet));
-    Serial.print(" dBm");
-    Serial.print("\tEncryption: ");
-    printEncryptionType(WiFi.encryptionType(thisNet));
-  }
-}
-
-void printEncryptionType(int thisType) {
-  // read the encryption type and print out the name:
-  switch (thisType) {
-    case ENC_TYPE_WEP:
-      Serial.println("WEP");
-      break;
-    case ENC_TYPE_TKIP:
-      Serial.println("WPA");
-      break;
-    case ENC_TYPE_CCMP:
-      Serial.println("WPA2");
-      break;
-    case ENC_TYPE_NONE:
-      Serial.println("None");
-      break;
-    case ENC_TYPE_AUTO:
-      Serial.println("Auto");
-      break;
   }
 }
