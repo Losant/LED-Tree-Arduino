@@ -47,3 +47,12 @@ Runs an animation that looks like a firework.
 ```
 
 The above example will run the firework animation for 15 seconds.
+
+## Controlling Tree with Structure Webhook
+The tree can also be controlled by POSTing JSON data to the Structure webhook URL. The webhook triggers a workflow that simply passes the data directly to the device using the above mechanism. The same payloads apply.
+
+```
+POST: https://triggers.getstructure.io/webhooks/zzplbKb8yJH6ajWWdGL6HOKxndm1
+```
+
+
