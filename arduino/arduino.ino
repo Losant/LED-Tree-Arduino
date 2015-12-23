@@ -25,8 +25,8 @@
 #define TOPIC "structure/DEVICE_ID/message"
 
 // WiFi setup.
-char ssid[] = "MORTAR";
-char pass[] = "BrickOTR";
+char ssid[] = "WIFI_SSID";
+char pass[] = "WIFI_PASS";
 int status = WL_IDLE_STATUS;
 WiFiClient wifiClient;
 
