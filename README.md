@@ -1,5 +1,17 @@
-# LED-Tree-Arduino
+# Arduino Powered LED Christmas Tree
 This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme. The Arduino connects to the [Structure IoT platform](http://getstructure.io) in order to receive commands.
+
+## About Structure
+[Structure](http://getstructure.io) is an IoT platform that is currently in private beta. Structure is used to facilitate communication between the [tree's website](http://led-tree.christmasiot.com) and the Arduino via MQTT. If you're interesting in learning more about Structure and keeping up-to-date with product announcements, please follow us at [@GetStructure](https://twitter.com/getstructure).
+
+<p style="text-align:center;">
+
+<img src="https://raw.githubusercontent.com/GetStructure/LED-Tree-Arduino/master/readme-assets/warpcore.gif">
+
+<img src="https://raw.githubusercontent.com/GetStructure/LED-Tree-Arduino/master/readme-assets/fireworks.gif">
+
+<img src="https://raw.githubusercontent.com/GetStructure/LED-Tree-Arduino/master/readme-assets/fade.gif">
+</p>
 
 ## Controlling the Tree
 The Arduino subscribes to Structure devices messages to control what animation to run and the animation options. The messages should be JSON strings and the various commands are defined below.
@@ -55,4 +67,9 @@ The tree can also be controlled by POSTing JSON data to the Structure webhook UR
 POST: https://triggers.getstructure.io/webhooks/zzplbKb8yJH6ajWWdGL6HOKxndm1
 ```
 
+## Controlling the Tree with Website
+We created a website at [http://led-tree.christmasiot.com](http://led-tree.christmasiot.com) that can be used to control the tree. The website also live-streams the tree so you can see your changes as well as what others are doing to the tree.
 
+<p style="text-align:center;">
+<img src="https://raw.githubusercontent.com/GetStructure/LED-Tree-Arduino/master/readme-assets/website.png">
+</p>
