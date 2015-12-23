@@ -1,9 +1,6 @@
 # Arduino Powered LED Christmas Tree
 This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme. The Arduino connects to the [Structure IoT platform](http://getstructure.io) in order to receive commands.
 
-## About Structure
-[Structure](http://getstructure.io) is an IoT platform that is currently in private beta. Structure is used to facilitate communication between the [tree's website](http://led-tree.christmasiot.com) and the Arduino via MQTT. If you're interesting in learning more about Structure and keeping up-to-date with product announcements, please follow us at [@GetStructure](https://twitter.com/getstructure).
-
 <p style="text-align:center;">
 
 <img src="https://raw.githubusercontent.com/GetStructure/LED-Tree-Arduino/master/readme-assets/warpcore.gif">
@@ -12,6 +9,9 @@ This is the Arduino source code for controlling a Christmas tree covered in Neop
 
 <img src="https://raw.githubusercontent.com/GetStructure/LED-Tree-Arduino/master/readme-assets/fade.gif">
 </p>
+
+## About Structure
+[Structure](http://getstructure.io) is an IoT platform that is currently in private beta. Structure is used to facilitate communication between the [tree's website](http://led-tree.christmasiot.com) and the Arduino via MQTT. If you're interesting in learning more about Structure and keeping up-to-date with product announcements, please follow us at [@GetStructure](https://twitter.com/getstructure).
 
 ## Controlling the Tree
 The Arduino subscribes to Structure devices messages to control what animation to run and the animation options. The messages should be JSON strings and the various commands are defined below.
