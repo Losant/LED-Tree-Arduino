@@ -1,5 +1,5 @@
 # Arduino Powered LED Christmas Tree
-This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme. The Arduino connects to the [Structure IoT platform](http://getstructure.io) in order to receive commands.
+This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme. The Arduino connects to the [Structure IoT platform](http://getstructure.io) in order to receive commands. If you're interested in the actual components used to build the tree, please check out the related [blog article](http://www.getstructure.io/blog/arduino-powered-led-christmas-tree).
 
 <p style="text-align:center;">
 
