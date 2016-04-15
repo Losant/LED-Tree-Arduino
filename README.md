@@ -1,5 +1,5 @@
 # Arduino Powered LED Christmas Tree
-This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme. The Arduino connects to the [Losant IoT platform](http://losant.com) in order to receive commands. If you're interested in the actual components used to build the tree, please check out the related [blog article](https://www.losant.com/blog/arduino-powered-led-christmas-tree).
+This is the Arduino source code for controlling a Christmas tree covered in Neopixel LED light strips. The project was created for a [Christmas IoT](http://christmasiot.com) popup shop that showcased various uses of IoT technology with a holiday theme. The Arduino connects to the [Losant IoT platform](https://www.losant.com) in order to receive commands. If you're interested in the actual components used to build the tree, please check out the related [blog article](https://www.losant.com/blog/arduino-powered-led-christmas-tree).
 
 <p style="text-align:center;">
 
@@ -11,7 +11,7 @@ This is the Arduino source code for controlling a Christmas tree covered in Neop
 </p>
 
 ## About Losant
-[Losant](http://losant.com) is an IoT platform that is currently free to use for a limited number of devices. Losant is used to facilitate communication between the [tree's website](http://led-tree.christmasiot.com) and the Arduino via MQTT. If you're interesting in learning more about Losant and keeping up-to-date with product announcements, please follow us at [@LosantHQ](https://twitter.com/LosantHQ).
+[Losant](https://www.losant.com) is an IoT platform that is currently free to use for a limited number of devices. Losant is used to facilitate communication between the [tree's website](http://led-tree.christmasiot.com) and the Arduino via MQTT. If you're interesting in learning more about Losant and keeping up-to-date with product announcements, please follow us at [@LosantHQ](https://twitter.com/LosantHQ).
 
 ## Controlling the Tree
 The Arduino subscribes to Losant device messages to control what animation to run and the animation options. The messages should be JSON strings and the various commands are defined below.
