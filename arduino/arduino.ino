@@ -17,12 +17,12 @@
 // Which pin the outer light strip is connected to.
 #define OUTER_PIN 9
 
-// Structure setup.
+// Losant setup.
 #define DEVICE_ID "DEVICE_ID"
 #define ACCESS_KEY "ACCESS_KEY"
 #define ACCESS_SECRET "ACCESS_SECRET"
-#define BROKER "broker.getstructure.io"
-#define TOPIC "structure/DEVICE_ID/message"
+#define BROKER "broker.losant.com"
+#define TOPIC "losant/DEVICE_ID/message"
 
 // WiFi setup.
 char ssid[] = "WIFI_SSID";
@@ -117,7 +117,7 @@ BackgroundAnimation backgroundAnimation {
   false
 };
 
-WarpCoreAnimation warpCoreAnimation { 
+WarpCoreAnimation warpCoreAnimation {
   0,
   0,
   10000,
@@ -199,14 +199,14 @@ void mqttMessageReceived(char *topic, byte *payload, unsigned int length) {
 
   Serial.println("Message Received");
   Serial.println((char *)payload);
-  
+
   JsonObject &root = msgBuffer.parseObject((char *)payload);
 
   if(!root.success()) {
     Serial.println("ERROR: Failed to parse JSON body.");
     return;
   }
-  
+
   JsonObject &payloadRoot = payloadBuffer.parseObject(root["payload"].asString());
 
   if(!payloadRoot.success()) {
@@ -484,7 +484,7 @@ void background() {
   if(ani->runningFirework && fireworkAnimation.done) {
     ani->runningFirework = false;
   }
-  
+
 };
 
 /**
@@ -493,7 +493,7 @@ void background() {
 void fade() {
 
   struct FadeAnimation *ani = &fadeAnimation;
-  
+
   if(ani->done) {
     return;
   }
@@ -510,7 +510,7 @@ void fade() {
   uint8_t rStop = ani->toColor >> 16;
   uint8_t gStop = ani->toColor >> 8;
   uint8_t bStop = ani->toColor;
-  
+
   uint8_t rStart = ani->fromColor >> 16;
   uint8_t gStart = ani->fromColor >> 8;
   uint8_t bStart = ani->fromColor;
@@ -542,7 +542,7 @@ void fireworks() {
   unsigned long shotDuration = floor((float)ani->duration * (float)ani->shotDuration);
   unsigned long burstDuration = floor((float)ani->duration * (float)ani->burstDuration);
   unsigned long fadeDuration = floor((float)ani->duration * (float)ani->fadeDuration);
-  
+
   ani->currentTime = millis();
   unsigned long duration = ani->currentTime - ani->startTime;
   if(duration >= ani->duration) {
@@ -554,7 +554,7 @@ void fireworks() {
     for(uint16_t i = 0; i< ani->outerStrip->numPixels(); i++) {
       ani->outerStrip->setPixelColor(i, ani->centerStrip->Color(0, 0, 0));
     }
-        
+
     Serial.println("Done with firework animation.");
     ani->done = true;
     return;
@@ -650,7 +650,7 @@ void fireworks() {
             ani->outerStrip->setPixelColor(i, ani->outerStrip->Color(0, 0, 0));
           }
         }
-        
+
       }
     }
   }
